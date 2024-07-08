@@ -30,6 +30,8 @@ bool DS2_ReplaceServerAddressHook::PatchHostname(Injector& injector)
     std::wstring WideHostname = WidenString(Config.ServerHostname);
     size_t CopyLength = (WideHostname.size() + 1) * 2;
 
+    char* winePrefix = std::getenv("WINEPREFIX");
+
     while (true)
     {
         std::vector<intptr_t> address_matches = injector.SearchString({
@@ -46,9 +48,13 @@ bool DS2_ReplaceServerAddressHook::PatchHostname(Injector& injector)
             {
                 continue;
             }
-            if (((info.Protect & PAGE_READWRITE) == 0 && (info.Protect & PAGE_EXECUTE_READWRITE) == 0))
-            {
-                continue;
+            //if i'm not running in wine do the check
+            if (winePrefix == nullptr) {
+                Log("you are using windows");
+                if (((info.Protect & PAGE_READWRITE) == 0 && (info.Protect & PAGE_EXECUTE_READWRITE) == 0))
+                {
+                    continue;
+                }
             }
 
             wchar_t* ptr = (wchar_t*)key;
@@ -77,6 +83,8 @@ bool DS2_ReplaceServerAddressHook::PatchHostname(Injector& injector)
 
 bool DS2_ReplaceServerAddressHook::PatchKey(Injector& injector)
 {
+    char* winePrefix = std::getenv("WINEPREFIX");
+
     while (true)
     {
         const RuntimeConfig& Config = Injector::Instance().GetConfig();
@@ -99,10 +107,22 @@ bool DS2_ReplaceServerAddressHook::PatchKey(Injector& injector)
         {
             // If the memory is not writable yet, modify its protection (steam drm fucks with the protection during boot).
             MEMORY_BASIC_INFORMATION info;
-            if (VirtualQuery((void*)key, &info, sizeof(info)) == 0 ||
-                ((info.Protect & PAGE_READWRITE) == 0 && (info.Protect & PAGE_EXECUTE_READWRITE) == 0))
+            // If the programm is running on wine
+            if(winePrefix != nullptr)
             {
-                continue;
+                Log("you are using wine");
+                if (VirtualQuery((void*)key, &info, sizeof(info)) == 0) //wine doesn't emulate memory seafe features of windows {il TroncoNinja e' stato qui}
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                if (VirtualQuery((void*)key, &info, sizeof(info)) == 0 ||
+                    ((info.Protect & PAGE_READWRITE) == 0 && (info.Protect & PAGE_EXECUTE_READWRITE) == 0))
+                {
+                    continue;
+                }
             }
 
             memcpy((char*)key, Config.ServerPublicKey.c_str(), CopyLength);
